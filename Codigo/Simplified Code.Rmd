@@ -1,0 +1,259 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Machine learning project
+## Authors: Jose Pérez Cano & Álvaro Ribot Barrado
+
+### 0. Libraries
+
+```{r}
+install.packages("klaR")
+install.packages("TunePareto")
+install.packages("rgl")
+install.packages("glmnet")
+install.packages("ca")
+```
+
+```{r}
+# LDA/ QDA
+library(MASS)
+
+# RDA
+library(klaR)
+
+# Multinomial
+library(nnet)
+
+# Cross-Validation
+library(TunePareto)
+
+# Naive Bayes
+library(e1071)
+
+# k-NN
+library(class)
+
+# Correspondence analysis
+library(ca)
+```
+
+### 1. Read data
+
+```{r}
+set.seed(2105)
+setwd("../data")
+clev <- read.csv("cleveland.csv", header=F)
+head(clev)
+```
+
+### 2. Preprocess data
+
+The dataset has missings that need to be treated, columns with too many should be removed and columns with a few should have them imputated.
+
+```{r}
+source("Preprocessing.R")
+
+# Missings
+clev <- clev[,much.na.cols(clev,60)]
+dummy <- c("V1", "V2", "V36", "V69", "V70", "V71", "V72", "V73", "V28", "location")
+clev <- remove.var(clev, dummy)
+clev <- knn.imputation(clev, 7)
+
+# Multicollinearity
+#corr.factors <- cor(clev)
+#which(abs(corr.factors)-diag(diag(corr.factors))>0.9, arr.ind=T)
+clev <- remove.var(clev, c("V57", "V55"))
+
+# Factors
+factores <- c("V58", "V4", "V9", "V16", "V18", "V19", "V20", "V21", "V22", "V23", "V24", "V25", "V26", "V27", "V38", "V39", "V41", "V51", "V56", "V11", "V59", "V60", "V61", "V63", "V65", "V67", "V68")
+for (f in factores){
+  clev[,f] <- as.factor(clev[,f])
+}
+clev <- move.value(clev, "V25", 2, 1)
+```
+
+```{r}
+summary(clev)
+```
+
+#### 2.1 Visualizations
+
+```{r}
+source("Visualizations.R")
+
+histograms(clev)
+boxplot.num(clev)
+histograms(clev, F)
+show.cor(clev)
+```
+
+#### 2.2 Modification of values
+
+```{r}
+qqplots(clev)
+```
+
+Boxcox
+
+```{r}
+boxcox.plots(clev)
+```
+
+Variables with many zeros:
+
+```{r}
+boxcox.plot.special(clev, c("V14", "V15", "V40"))
+```
+
+```{r}
+clev <- apply.trans(clev, sqrt.neg.vars=c("V10", "V12", "V31", "V43"), sqrt.vars = c("V14", "V40"))
+clev <- scale.num(clev)
+```
+
+This is the final dataset.
+
+```{r}
+summary(clev)
+```
+
+#### 2.3. Feature extraction
+
+Separe train and test data, seed for reproducibility.
+
+```{r}
+set.seed(2000)
+n <- nrow(clev)
+train.lenght <- round(2*n/3)
+
+clev <- clev[sample(n),]
+train <- clev[1:train.lenght,]
+test <- clev[(train.lenght+1):n,]
+
+col.class <- as.numeric(train$V58)
+col.class[col.class==1] <- "red"
+col.class[col.class==2] <- "green"
+col.class[col.class==3] <- "blue"
+col.class[col.class==4] <- "yellow"
+col.class[col.class==5] <- "purple"
+```
+
+```{r}
+pca <- pca.num(train)
+plot.pca(train, col.class, pca = pca)
+```
+
+```{r}
+fda <- plot.fda(train, V58~.-V21-V22-V59, col.class)
+
+train <- extract.fda(fda, train)
+test <- extract.fda(fda, test)
+```
+
+Correspondence analysis
+
+```{r}
+mca.features <- mcaplot(train, factores)
+```
+
+### 3. Resampling protocol
+
+```{r}
+source("Resampling.R")
+```
+
+
+### 4. Models
+
+The models we are going to use are: 
+  - LDA
+  - QDA
+  - RDA
+  - k-NN
+  - Naïve Bayes
+  - GLM
+  - Neural Networks
+  
+
+```{r}
+rda.model <- rda(V58~V3+V4+V9+V10+V11+V12+V14+V15+V16+V18+V19+V20+V21+V22+V23+V24+V25+V26+V27+V29+V31+V32+V33+V34+V35+V37+V38+V39+V40+V41+V43+V44+V51+V56+V60+V61+V63+V65+V67+V68, data=train)
+naive.model <- naiveBayes(V58~V3+V4+V9+V10+V11+V12+V14+V15+V16+V18+V19+V20+V21+V22+V23+V24+V25+V26+V27+V29+V31+V32+V33+V34+V35+V37+V38+V39+V40+V41+V43+V44+V51+V56+V60+V61+V63+V65+V67+V68, data=train)
+```
+
+
+```{r}
+cross.validation(train, train$V58, rda.model, 10, 10, T)
+```
+
+
+```{r}
+rda.model.fda <- rda(V58~.,data=train)
+```
+
+
+```{r}
+cross.validation(train, train$V58, rda.model.fda, 10, 10, T)
+```
+
+
+```{r}
+cross.validation.naive(train, train$V58, naive.model, 10, 10)
+```
+
+
+```{r}
+err <- c()
+for (k in 1:20){
+  err <- c(err, cross.validation.knn(train, train$V58, 10,10, k))
+}
+```
+
+
+```{r}
+plot(err, type = "l")
+err
+```
+
+
+```{r}
+cross.validation.knn(train, train$V58, 10, 10, 1)
+
+multinomial.model <- multinom(V58~., data=train)
+
+cross.validation(train, train$V58, multinomial.model, 10, 10, F)
+
+multinomial.model.step <- step(multinomial.model)
+
+cross.validation(train, train$V58, multinomial.model.step, 10, 10, F)
+
+multinomial.model.noFDA <- multinom(V58~.-LD1-LD2-LD3-LD4, data=train)
+
+cross.validation(train, train$V58, multinomial.model.noFDA, 10, 10, F)
+
+multinomial.model.noFDA.step <- step(multinomial.model.noFDA)
+
+cross.validation(train, train$V58, multinomial.model.noFDA.step, 10, 10, F)
+```
+
+
+## Test error
+
+```{r}
+rda.model <- update(rda.model.fda, data=train)
+pred.test <- predict(rda.model.fda, test)
+pred.test <- pred.test$class
+(err.table <- table(True=test$V58, Pred=pred.test))
+(err.test <- 1-sum(diag(err.table))/sum(err.table))
+```
+ 
+
+
+
+
+
+
+
+
+
+

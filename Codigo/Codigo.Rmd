@@ -249,11 +249,9 @@ for (i in 1:ncol(clev_box)){
     clev_box[,i] <- 2*sqrt(clev_box[,i])
   }
 }
-clev_box <- data.frame(scale(clev_box, scale = T)) #standarized
-names(clev_box) <- names(clev_numeric)
-clev_box$V14 <- clev_box$V14 - min(clev_box$V14)
-clev_box$V15 <- clev_box$V15 - min(clev_box$V15)
-clev_box$V40 <- clev_box$V40 - min(clev_box$V40)
+aux <- names(clev_box)
+clev_box <- data.frame(clev_box) 
+colnames <- aux
 ```
 
 
@@ -275,7 +273,7 @@ clev_box <- apply(clev_box, 2, scale)
 And this is the final dataset after processing it.
 
 ```{r}
-clev[, names(clev_box)] <- clev_box[,names(clev_box)]
+clev[, colnames(clev_box)] <- clev_box[,colnames(clev_box)]
 summary(clev)
 ```
 
@@ -381,8 +379,6 @@ mca.features <- ac_ind$rowcoord
 
 ### 3. Resampling protocol
 Principal utility function for doing cross-validation. 
-
-First we separate in train and test.
 
 Create the CV function for any model with associated predict and update functions.
 
