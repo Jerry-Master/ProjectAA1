@@ -18,7 +18,6 @@ void read(const string& filename, vvd& v) {
     cont++;
     if (cont == 75){
       string aux; f >> aux;
-      cout << aux << endl;
       cont = 0;
       ++i;
       v.push_back(vd(0));

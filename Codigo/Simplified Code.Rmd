@@ -37,6 +37,9 @@ library(class)
 
 # Correspondence analysis
 library(ca)
+
+# Cross-validation nn
+library(caret)
 ```
 
 ### 1. Read data
@@ -237,7 +240,7 @@ cross.validation(train, train$V58, multinomial.model.noFDA.step, 10, 10, F)
 ```
 
 
-## Test error
+### Test error
 
 ```{r}
 rda.model <- update(rda.model.fda, data=train)
@@ -248,12 +251,356 @@ pred.test <- pred.test$class
 ```
  
 
+## Hungarian data
+
+```{r}
+hung <- read.csv("../data/hungarian.csv", header=F)
+head(hung)
+```
 
 
+```{r}
+# Missings
+hung <- hung[,much.na.cols(hung,60)]
+dummy <- c("V1", "V2", "V36", "V69", "V70", "V71", "V72", "V73", "V28")
+hung <- remove.var(hung, dummy)
+hung <- knn.imputation(hung, 7)
+
+# Multicollinearity
+corr.factors <- cor(hung)
+which(abs(corr.factors)-diag(diag(corr.factors))>0.9, arr.ind=T)
+hung <- remove.var(hung, c("V57", "V55"))
+
+# Factors
+factores <- c("V58", "V4", "V9", "V16", "V19", "V20", "V21", "V22", "V23", "V24", "V25", "V26", "V27", "V38", "V39", "V56", "V11")
+for (f in factores){
+  hung[,f] <- as.factor(hung[,f])
+}
+hung <- move.value(hung, "V25", 2, 1)
+```
+
+```{r}
+summary(hung)
+```
+
+```{r}
+histograms(hung)
+boxplot.num(hung)
+histograms(hung, F)
+show.cor(hung)
+```
+
+```{r}
+qqplots(hung)
+```
+
+```{r}
+boxcox.plots(hung)
+```
 
 
+```{r}
+boxcox.plot.special(hung, c("V40"))
+```
+
+```{r}
+hung <- apply.trans(hung, sqrt.neg.vars=c("V10", "V12"), sqrt.vars = c("V31", "V29", "V42", "V43"), log.vars = c("V6", "V7", "V40"))
+hung <- scale.num(hung)
+```
+
+```{r}
+hung <- remove.var(hung, c("V23", "V39"))
+hung <- move.value(hung, "V19", 2, 1)
+summary(hung)
+```
 
 
+```{r}
+set.seed(2000)
+n <- nrow(hung)
+train.lenght <- round(2*n/3)
+
+hung <- hung[sample(n),]
+train <- hung[1:train.lenght,]
+test <- hung[(train.lenght+1):n,]
+
+col.class <- as.numeric(train$V58)
+col.class[col.class==1] <- "red"
+col.class[col.class==2] <- "green"
+col.class[col.class==3] <- "blue"
+col.class[col.class==4] <- "yellow"
+col.class[col.class==5] <- "purple"
+```
+
+```{r}
+col.class2 <- as.numeric(train$V58)
+col.class2[col.class2==1] <- "red"
+col.class2[col.class2==2] <- "green"
+col.class2[col.class2==3] <- "blue"
+col.class2[col.class2==4] <- "yellow"
+col.class2[col.class2==5] <- "purple"
+pca <- pca.num(hung)
+plot.pca(hung, col.class2, pca = pca)
+# hung <- extract.pca(pca, hung)
+```
+
+```{r}
+fda <- plot.fda(train, V58~.-V56, col.class)
+
+train <- extract.fda(fda, train)
+test <- extract.fda(fda, test)
+```
+
+```{r}
+plot(test$LD1, test$LD2, col=c("red","green","yellow","blue","purple")[as.numeric(test$V58)], xlab="LD1", ylab="LD2")
+legend("topleft", legend=c("0","1","2","3","4"), fill=c("red","green","yellow","blue","purple"))
+```
 
 
+```{r}
+mca.features <- mcaplot(train, factores)
+```
+
+```{r}
+rda.model <- rda(V58~.-LD1-LD2-LD3-LD4, data=train)
+naive.model <- naiveBayes(V58~., data=train)
+```
+
+
+```{r}
+cross.validation(train, train$V58, rda.model, 10, 10, T)
+```
+
+
+```{r}
+rda.model.fda <- rda(V58~.,data=train)
+```
+
+
+```{r}
+cross.validation(train, train$V58, rda.model.fda, 2, 10, T)
+```
+
+
+```{r}
+cross.validation.naive(train, train$V58, naive.model, 10, 10)
+```
+
+
+```{r}
+err <- c()
+for (k in 1:20){
+  err <- c(err, cross.validation.knn(train, train$V58, 10,10, k))
+}
+```
+
+
+```{r}
+plot(err, type = "l")
+err
+```
+
+
+```{r}
+multinomial.model <- multinom(V58~., data=train)
+
+cross.validation(train, train$V58, multinomial.model, 10, 10, F)
+
+multinomial.model.step <- step(multinomial.model)
+
+cross.validation(train, train$V58, multinomial.model.step, 10, 10, F)
+
+multinomial.model.noFDA <- multinom(V58~.-LD1-LD2-LD3-LD4, data=train)
+
+cross.validation(train, train$V58, multinomial.model.noFDA, 10, 10, F)
+
+multinomial.model.noFDA.step <- step(multinomial.model.noFDA)
+
+cross.validation(train, train$V58, multinomial.model.noFDA.step, 10, 10, F)
+```
+
+
+```{r}
+qda.model <- qda(V58~.-LD1-LD2-LD3-LD4, data=train)
+```
+
+
+## Redes neuronales
+
+```{r}
+trc <- trainControl (method="repeatedcv", number=10, repeats=10)
+```
+
+
+```{r}
+decays <- c(0.0001, 0.001, 0.01, 0.1, 1)
+nn.model10x10CV <- train(V58~LD1+LD2+LD3+LD4, data = train, method = 'nnet', 
+                         trace=F, maxit=1000,
+                         tuneGrid = expand.grid(.size=9,.decay=decays), trControl=trc)
+```
+
+
+```{r}
+nn.model10x10CV$results
+nn.model10x10CV$bestTune
+```
+
+```{r}
+trc <- trainControl (method="repeatedcv", number=5, repeats=1)
+decays <- c(0, 0.01, 0.1, 1)
+nn.model10x10CV <- train(V58~., data = train, method = 'nnet', 
+                         trace=F, maxit=1000, MaxNWt=2000,
+                         tuneGrid = expand.grid(.size=9,.decay=decays), trControl=trc)
+```
+
+
+```{r}
+nn.model10x10CV$results
+nn.model10x10CV$bestTune
+```
+
+```{r}
+decays <- c(1, 10, 100, 1000)
+nn.model10x10CV <- train(V58~LD1+LD2+LD3+LD4, data = train, method = 'nnet', 
+                         trace=F, maxit=1000,
+                         tuneGrid = expand.grid(.size=9,.decay=0), trControl=trc)
+```
+
+
+```{r}
+nn.model10x10CV$results
+nn.model10x10CV$bestTune
+```
+
+```{r}
+nn <- nnet(V58~., data=train, maxit=1000, size=9, decay=1, MaxNWt=2000)
+```
+
+```{r}
+getvalue <- function(row){
+  if (row[1]){
+    0
+  } else if (row[2]){
+    1
+  } else if (row[3]){
+    2
+  } else if (row[4]){
+    3
+  } else if (row[5]){
+    4
+  } else {
+    5
+  }
+}
+```
+
+```{r}
+table(train$V58, apply(nn$fitted.values, 1, which.max)-1)
+```
+
+```{r}
+pred <- predict(nn, test)
+(tab <- table(test$V58, apply(pred, 1, which.max)-1))
+(err.test <- 1 - sum(diag(tab))/sum(tab))
+```
+
+
+```{r}
+trc <- trainControl (method="repeatedcv", number=10, repeats=1)
+decays <- c(0.67, 0.66, 0.68)
+sizes <- c(1, 2, 3, 4,5,6,7)
+nn.model10x10CV <- train(V58~.-LD1-LD2-LD3-LD4-V56-V20-V21-V22, data = train,
+                         method = 'nnet',
+                         trace=F, maxit=1000, MaxNWts=10000,
+                         tuneGrid = expand.grid(.size=20,.decay=decays),
+                         trControl=trc)
+```
+
+
+```{r}
+nn.model10x10CV$results
+nn.model10x10CV$bestTune
+```
+
+```{r}
+nn <- nnet(V58~.-LD1-LD2-LD3-LD4-V56-V20-V21-V22, data=train, maxit=1000, size=20, decay=0.68, MaxNWts=10000)
+(tab <- table(train$V58, apply(nn$fitted.values, 1, which.max)-1))
+(err <- 1 - sum(diag(tab))/sum(tab))
+```
+
+
+```{r}
+pred <- predict(nn, test)
+(tab <- table(test$V58, apply(pred, 1, which.max)-1))
+(err <- 1 - sum(diag(tab))/sum(tab))
+
+target <- as.numeric(test$V58)-1
+target[target > 1] <- 1
+
+pred <- apply(pred, 1, which.max)-1
+pred[pred>1] <- 1
+
+(tab <- table(target, pred))
+(err <- 1 - sum(diag(tab))/sum(tab))
+```
+
+## Two-classes
+
+
+```{r}
+aux <- hung
+aux$V58[aux$V58 != 0] <- 1
+aux$V58 <- droplevels(aux$V58)
+```
+
+```{r}
+set.seed(2000)
+n <- nrow(aux)
+train.lenght <- round(2*n/3)
+
+aux <- aux[sample(n),]
+train_aux <- aux[1:train.lenght,]
+test_aux <- aux[(train.lenght+1):n,]
+```
+
+```{r}
+nn <- nnet(V58~.-V56-V20-V21-V22, data=train_aux, maxit=1000, size=30, decay=0, MaxNWts = 10000)
+(tab<- table(train_aux$V58, (nn$fitted.values > 0.5)*1))
+(err.train <- 1 - sum(diag(tab))/sum(tab))
+```
+
+```{r}
+decays <- c(0.52, 0.55, 0.57, 0.6)
+sizes <- c(4,5, 6, 7)
+trc <- trainControl (method="repeatedcv", number=10, repeats=1)
+nn.model10x10CV <- train(V58~.-V56-V20-V21-V22, data = train_aux,
+                         method = 'nnet',
+                         trace=F, maxit=1000, MaxNWts=10000000,
+                         tuneGrid = expand.grid(.size=30,.decay=decays), trControl=trc)
+```
+
+
+```{r}
+nn.model10x10CV$results
+nn.model10x10CV$bestTune
+```
+
+```{r}
+nn <- nnet(V58~.-V56-V20-V21-V22, data=train_aux, maxit=1000, size=30, decay=0.55, MaxNWt=10000)
+
+(tab<- table(train_aux$V58, (nn$fitted.values > 0.5)*1))
+(err.train <- 1 - sum(diag(tab))/sum(tab))
+```
+
+
+```{r}
+(tab<- table(train_aux$V58, (nn$fitted.values > 0.5)*1))
+(err.train <- 1 - sum(diag(tab))/sum(tab))
+```
+
+```{r}
+pred <- predict(nn, test)
+(tab<- table(test_aux$V58, (pred > 0.5)*1))
+(err.train <- 1 - sum(diag(tab))/sum(tab))
+```
 

@@ -128,6 +128,14 @@ extract.fda <- function(fda, dd){
   dd
 }
 
+extract.pca <- function(pca, dd){
+  loadings <- pca$scores
+  for (i in 1:(dim(loadings)[2])){
+    dd[,paste("PC", i, sep="")] <- loadings[,i]
+  }
+  dd
+}
+
 
 
 
